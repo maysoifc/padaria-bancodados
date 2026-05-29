@@ -23,4 +23,5 @@ import os
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include('produtos.urls')),
+    path('api/', include('perfis.urls')),
 ]
