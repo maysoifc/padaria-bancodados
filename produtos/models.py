@@ -10,7 +10,9 @@ class Categoria(models.Model):
 class Produto(models.Model):
     idProduto = models.AutoField(primary_key=True)
     nome = models.CharField(max_length=200)
+    preco = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     favorito = models.BooleanField(default=False)
+    imagem = models.CharField(max_length=255, null=True, blank=True)
     categorias = models.ManyToManyField(Categoria, related_name='produtos')
 
     def __str__(self):
