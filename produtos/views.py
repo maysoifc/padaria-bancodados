@@ -4,6 +4,7 @@ from rest_framework import status
 from .models import Produto
 from .serializers import ProdutoSerializer
 from .models import Categoria
+from django.shortcuts import get_object_or_404
 
 class ProdutoListView(APIView):
     def get(self, request):
@@ -29,3 +30,9 @@ class CategoriaListView(APIView):
     def get(self, request):
         categorias = Categoria.objects.all().values('idCategoria', 'nome_categoria')
         return Response(list(categorias))
+    
+class ProdutoDetailView(APIView):
+    def get(self, request, id):
+        produto = get_object_or_404(Produto, idProduto=id)
+        serializer = ProdutoSerializer(produto)
+        return Response(serializer.data)
