@@ -6,7 +6,7 @@ import dj_database_url
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # SEGURANÇA: Configurações adaptadas para o Fabroku / Produção
-SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-mde)poaqt4b#jy=-eq66txrf@yg6%@i+xg5^7#(t1cn2n_2(g!')
+SECRET_KEY = os.environ.get('SECRET_KEY', 'poaqt4b#jy=-eq66txrf@yg6%@i+xg5^7#(t1cn2n_2(g!')
 DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 
 # HOSTS: Permite que o servidor web acesse a aplicação
