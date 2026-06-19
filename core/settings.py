@@ -1,6 +1,7 @@
 from pathlib import Path
 import os
 import dj_database_url
+from datetime import timedelta
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -20,10 +21,13 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'cloudinary_storage',
+    'cloudinary',
     'corsheaders',
     'rest_framework',
     'produtos',
     'perfis',
+    'uploader',
 ]
 
 MIDDLEWARE = [
@@ -54,15 +58,45 @@ TEMPLATES = [
         },
     },
 ]
-
+DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
+CLOUDINARY_STORAGE = {
+    'CLOUD_NAME': os.environ.get('CLOUDINARY_CLOUD_NAME'),
+    'API_KEY': os.environ.get('CLOUDINARY_API_KEY'),
+    'API_SECRET': os.environ.get('CLOUDINARY_API_SECRET'),
+}
 WSGI_APPLICATION = 'core.wsgi.application'
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ),
+}
+
+SIMPLE_JWT = {
+    # Tempo de vida do token de acesso (ex: expira em 60 minutos)
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
+    
+    # Tempo de vida do token de atualização (ex: pode renovar o login em até 1 dia)
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
+    
+    'ROTATE_REFRESH_TOKENS': False,
+    'BLACKLIST_AFTER_ROTATION': False,
+    'ALGORITHM': 'HS256',
+    'SIGNING_KEY': SECRET_KEY,  # Usa a chave secreta do seu sistema
+    'AUTH_HEADER_TYPES': ('Bearer',),
+}
 
 # Database: O dj_database_url lê a variável DATABASE_URL injetada pelo Fabroku
+DATABASE_CONFIG = dj_database_url.config(
+    default='sqlite:///' + str(BASE_DIR / 'db.sqlite3'),
+    conn_max_age=600
+)
+
+# Aplica ssl_require=True apenas se o banco configurado for PostgreSQL
+if DATABASE_CONFIG and 'postgresql' in DATABASE_CONFIG.get('ENGINE', ''):
+    DATABASE_CONFIG['OPTIONS'] = {'sslmode': 'require'}
+
 DATABASES = {
-    'default': dj_database_url.config(
-        default='sqlite:///' + str(BASE_DIR / 'db.sqlite3'),
-        conn_max_age=600
-    )
+    'default': DATABASE_CONFIG
 }
 
 # Password validation
