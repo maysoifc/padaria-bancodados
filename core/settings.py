@@ -93,3 +93,7 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 CORS_ALLOW_ALL_ORIGINS = True
 
 AUTH_USER_MODEL = 'perfis.Usuario'
+
+
+# Exibe as configurações principais para verificação
+print(f'{DATABASES = }')
