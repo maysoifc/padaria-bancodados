@@ -1,16 +1,16 @@
 from pathlib import Path
 import os
+from dotenv import load_dotenv
 import dj_database_url
 from datetime import timedelta
+from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
-
-# SEGURANÇA: Configurações adaptadas para o Fabroku / Produção
+load_dotenv(BASE_DIR / ".env")
 SECRET_KEY = os.environ.get('SECRET_KEY', 'poaqt4b#jy=-eq66txrf@yg6%@i+xg5^7#(t1cn2n_2(g!')
-DEBUG = os.environ.get('DEBUG', 'False') == 'True'
+DEBUG = True
 
-# HOSTS: Permite que o servidor web acesse a aplicação
 ALLOWED_HOSTS = ['*']
 
 # Application definition
@@ -33,13 +33,13 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware',
     'corsheaders.middleware.CorsMiddleware',
+    'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
-    'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'django.middleware.clickjacking.XFrameOptionsMiddleware',  # Correção aplicada aqui
 ]
 
 ROOT_URLCONF = 'core.urls'
@@ -58,13 +58,29 @@ TEMPLATES = [
         },
     },
 ]
-DEFAULT_FILE_STORAGE = 'cloudinary_storage.storage.MediaCloudinaryStorage'
-CLOUDINARY_STORAGE = {
-    'CLOUD_NAME': os.environ.get('CLOUDINARY_CLOUD_NAME'),
-    'API_KEY': os.environ.get('CLOUDINARY_API_KEY'),
-    'API_SECRET': os.environ.get('CLOUDINARY_API_SECRET'),
-}
+
 WSGI_APPLICATION = 'core.wsgi.application'
+
+# Configuração moderna de armazenamento do Django (Django 4.2+)
+STORAGES = {
+    "default": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+    },
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
+    },
+    "media": {
+        "BACKEND": "cloudinary_storage.storage.MediaCloudinaryStorage",
+    },
+}
+
+# Credenciais do Cloudinary
+CLOUDINARY_STORAGE = {
+    'CLOUD_NAME': os.environ.get('CLOUDINARY_CLOUD_NAME', 'duveqsnx7'),
+    'API_KEY': os.environ.get('CLOUDINARY_API_KEY', '264979472363357'),
+    'API_SECRET': os.environ.get('CLOUDINARY_API_SECRET', 'CgdxnFe0fYlMbSsp-ZYkAEy6s4w'),
+}
+
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
@@ -72,26 +88,21 @@ REST_FRAMEWORK = {
 }
 
 SIMPLE_JWT = {
-    # Tempo de vida do token de acesso (ex: expira em 60 minutos)
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
-    
-    # Tempo de vida do token de atualização (ex: pode renovar o login em até 1 dia)
     'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
-    
     'ROTATE_REFRESH_TOKENS': False,
     'BLACKLIST_AFTER_ROTATION': False,
     'ALGORITHM': 'HS256',
-    'SIGNING_KEY': SECRET_KEY,  # Usa a chave secreta do seu sistema
+    'SIGNING_KEY': SECRET_KEY,
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
 
-# Database: O dj_database_url lê a variável DATABASE_URL injetada pelo Fabroku
+# Database configuração
 DATABASE_CONFIG = dj_database_url.config(
     default='sqlite:///' + str(BASE_DIR / 'db.sqlite3'),
     conn_max_age=600
 )
 
-# Aplica ssl_require=True apenas se o banco configurado for PostgreSQL
 if DATABASE_CONFIG and 'postgresql' in DATABASE_CONFIG.get('ENGINE', ''):
     DATABASE_CONFIG['OPTIONS'] = {'sslmode': 'require'}
 
@@ -120,15 +131,17 @@ LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_TZ = True
-DEBUG = True
-# Static files (CSS, JavaScript, Images)
+
+# Estáticos e Mídia
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'  
+
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
 
 CORS_ALLOW_ALL_ORIGINS = True
 
 AUTH_USER_MODEL = 'perfis.Usuario'
-
 
 # Exibe as configurações principais para verificação
 print(f'{DATABASES = }')
