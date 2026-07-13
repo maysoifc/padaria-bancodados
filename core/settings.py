@@ -3,17 +3,16 @@ import os
 from dotenv import load_dotenv
 import dj_database_url
 from datetime import timedelta
-from pathlib import Path
 
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
-SECRET_KEY = os.environ.get('SECRET_KEY', 'poaqt4b#jy=-eq66txrf@yg6%@i+xg5^7#(t1cn2n_2(g!')
-DEBUG = True
 
-ALLOWED_HOSTS = ['*']
+DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 
-# Application definition
+ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
+
+SECRET_KEY = os.environ.get('SECRET_KEY', 'uma-chave-secreta-bem-longa-e-segura-para-producao')
+
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -34,12 +33,12 @@ MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware',
     'corsheaders.middleware.CorsMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
+    'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
-    'django.middleware.clickjacking.XFrameOptionsMiddleware',  # Correção aplicada aqui
+    'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
 ROOT_URLCONF = 'core.urls'
@@ -61,24 +60,17 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'core.wsgi.application'
 
-# Configuração moderna de armazenamento do Django (Django 4.2+)
+# Configuração de Armazenamento
 STORAGES = {
-    "default": {
-        "BACKEND": "django.core.files.storage.FileSystemStorage",
-    },
-    "staticfiles": {
-        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage",
-    },
-    "media": {
-        "BACKEND": "cloudinary_storage.storage.MediaCloudinaryStorage",
-    },
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"},
+    "media": {"BACKEND": "cloudinary_storage.storage.MediaCloudinaryStorage"},
 }
 
-# Credenciais do Cloudinary
 CLOUDINARY_STORAGE = {
-    'CLOUD_NAME': os.environ.get('CLOUDINARY_CLOUD_NAME', 'duveqsnx7'),
-    'API_KEY': os.environ.get('CLOUDINARY_API_KEY', '264979472363357'),
-    'API_SECRET': os.environ.get('CLOUDINARY_API_SECRET', 'CgdxnFe0fYlMbSsp-ZYkAEy6s4w'),
+    'CLOUD_NAME': os.environ.get('CLOUDINARY_CLOUD_NAME'),
+    'API_KEY': os.environ.get('CLOUDINARY_API_KEY'),
+    'API_SECRET': os.environ.get('CLOUDINARY_API_SECRET'),
 }
 
 REST_FRAMEWORK = {
@@ -90,58 +82,29 @@ REST_FRAMEWORK = {
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
-    'ROTATE_REFRESH_TOKENS': False,
-    'BLACKLIST_AFTER_ROTATION': False,
-    'ALGORITHM': 'HS256',
     'SIGNING_KEY': SECRET_KEY,
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
 
-# Database configuração
-DATABASE_CONFIG = dj_database_url.config(
-    default='sqlite:///' + str(BASE_DIR / 'db.sqlite3'),
-    conn_max_age=600
-)
-
-if DATABASE_CONFIG and 'postgresql' in DATABASE_CONFIG.get('ENGINE', ''):
-    DATABASE_CONFIG['OPTIONS'] = {'sslmode': 'require'}
-
+# Banco de Dados
 DATABASES = {
-    'default': DATABASE_CONFIG
+    'default': dj_database_url.config(
+        default='sqlite:///' + str(BASE_DIR / 'db.sqlite3'),
+        conn_max_age=600,
+        ssl_require=True
+    )
 }
 
-# Password validation
-AUTH_PASSWORD_VALIDATORS = [
-    {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
-    },
-]
+CORS_ALLOWED_ORIGINS = os.environ.get('CORS_ALLOWED_ORIGINS', 'http://localhost:5173').split(',')
+CORS_ALLOW_ALL_ORIGINS = False 
 
-# Internationalization
+AUTH_USER_MODEL = 'perfis.Usuario'
+
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'
 USE_I18N = True
 USE_TZ = True
 
-# Estáticos e Mídia
 STATIC_URL = 'static/'
-STATIC_ROOT = BASE_DIR / 'staticfiles'  
-
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
-
-CORS_ALLOW_ALL_ORIGINS = True
-
-AUTH_USER_MODEL = 'perfis.Usuario'
-
-# Exibe as configurações principais para verificação
-print(f'{DATABASES = }')
