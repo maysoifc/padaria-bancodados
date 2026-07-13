@@ -1,7 +1,7 @@
 from pathlib import Path
+import dj_database_url
 import os
 from dotenv import load_dotenv
-import dj_database_url
 from datetime import timedelta
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -90,10 +90,12 @@ SIMPLE_JWT = {
 DATABASES = {
     'default': dj_database_url.config(
         default='sqlite:///' + str(BASE_DIR / 'db.sqlite3'),
-        conn_max_age=600,
-        ssl_require=True
+        conn_max_age=600
     )
 }
+
+if 'postgresql' in DATABASES['default'].get('ENGINE', ''):
+    DATABASES['default']['OPTIONS'] = {'sslmode': 'require'}
 
 CORS_ALLOWED_ORIGINS = os.environ.get('CORS_ALLOWED_ORIGINS', 'http://localhost:5173').split(',')
 CORS_ALLOW_ALL_ORIGINS = False 
