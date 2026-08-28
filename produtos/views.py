@@ -1,21 +1,34 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from .models import Produto
+from .models import Produto, Categoria
 from .serializers import ProdutoSerializer
-from .models import Categoria
 from django.shortcuts import get_object_or_404
 
 class ProdutoListView(APIView):
     def get(self, request):
         categoria_nome = request.query_params.get('categoria')
-        if categoria_nome and categoria_nome != 'Todos os produtos':
-            produtos = Produto.objects.filter(categorias__nome_categoria=categoria_nome).distinct()
-        else:
-            produtos = Produto.objects.all()
+        
+        # --- DEBUG TOTAL ---
+        print(f"DEBUG: O que o Frontend enviou: '{categoria_nome}'")
+        
+        # Vamos ver todos os produtos e suas categorias reais no banco
+        produtos_no_banco = Produto.objects.all()
+        for p in produtos_no_banco:
+            cats = list(p.categorias.values_list('nome_categoria', flat=True))
+            print(f"DEBUG: Produto '{p.nome}' tem as categorias: {cats}")
+        # -------------------
+        
+        produtos = Produto.objects.all()
+        
+        if categoria_nome and categoria_nome != '':
+            produtos = produtos.filter(
+                categorias__nome_categoria__icontains=categoria_nome.strip()
+            ).distinct()
+            
         serializer = ProdutoSerializer(produtos, many=True)
         return Response(serializer.data)
-
+    
 class ProdutoFavoritoView(APIView):
     def patch(self, request, id):
         try:
