@@ -13,22 +13,26 @@ from .views import (
 
 
 urlpatterns = [
+
     # =====================================================
     # PRODUTOS
     # =====================================================
 
+    # Listar e cadastrar produtos
     path(
         "produtos/",
         ProdutoListView.as_view(),
         name="produto-list"
     ),
 
+    # Consultar, editar e excluir produto
     path(
         "produtos/<int:id>/",
         ProdutoDetailView.as_view(),
         name="produto-detalhe"
     ),
 
+    # Atualizar favorito
     path(
         "produtos/<int:id>/favorito/",
         ProdutoFavoritoView.as_view(),
@@ -49,6 +53,7 @@ urlpatterns = [
     # COMPRAS
     # =====================================================
 
+    # Criar compra pelo cliente
     path(
         "compras/",
         CompraCreateView.as_view(),
@@ -59,12 +64,14 @@ urlpatterns = [
     # ADMINISTRAÇÃO DAS COMPRAS
     # =====================================================
 
+    # Listar todas as encomendas
     path(
         "compras/admin/",
         AdminComprasView.as_view(),
         name="admin-compras"
     ),
 
+    # Consultar e atualizar uma encomenda
     path(
         "compras/admin/<int:id>/",
         AdminComprasView.as_view(),
@@ -80,4 +87,5 @@ urlpatterns = [
         AdminDashboardView.as_view(),
         name="admin-dashboard"
     ),
+
 ]
