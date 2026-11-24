@@ -7,8 +7,13 @@ from .views import (
     CategoriaListView,
     ProdutoDetailView,
     CompraCreateView,
+    AvaliacaoListCreateView,
+    AvaliacaoDetailView,
     AdminDashboardView,
     AdminComprasView,
+    CarteiraFidelidadeView,
+    CupomFidelidadeListView,
+    CupomFidelidadeUtilizarView,
 )
 
 
@@ -53,11 +58,30 @@ urlpatterns = [
     # COMPRAS
     # =====================================================
 
-    # Criar compra pelo cliente
+    # Criar compra e consultar histórico do usuário
     path(
         "compras/",
         CompraCreateView.as_view(),
         name="compra-create"
+    ),
+
+    # =====================================================
+    # AVALIAÇÕES
+    # =====================================================
+
+    # Listar avaliações do usuário ou de um produto
+    # Também permite cadastrar uma nova avaliação
+    path(
+        "avaliacoes/",
+        AvaliacaoListCreateView.as_view(),
+        name="avaliacao-list-create"
+    ),
+
+    # Editar uma avaliação existente
+    path(
+        "avaliacoes/<int:id>/",
+        AvaliacaoDetailView.as_view(),
+        name="avaliacao-detalhe"
     ),
 
     # =====================================================
@@ -76,6 +100,31 @@ urlpatterns = [
         "compras/admin/<int:id>/",
         AdminComprasView.as_view(),
         name="admin-compra-detalhe"
+    ),
+
+    # =====================================================
+    # FIDELIDADE
+    # =====================================================
+
+    # Consultar carteira de selos do usuário autenticado
+    path(
+        "fidelidade/carteira/",
+        CarteiraFidelidadeView.as_view(),
+        name="fidelidade-carteira"
+    ),
+
+    # Listar cupons do usuário autenticado
+    path(
+        "fidelidade/cupons/",
+        CupomFidelidadeListView.as_view(),
+        name="fidelidade-cupons"
+    ),
+
+    # Validar um cupom
+    path(
+        "fidelidade/cupons/<str:codigo>/utilizar/",
+        CupomFidelidadeUtilizarView.as_view(),
+        name="fidelidade-cupom-utilizar"
     ),
 
     # =====================================================

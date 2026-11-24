@@ -1,9 +1,17 @@
 
 from decimal import Decimal, ROUND_HALF_UP
 
+from django.db.models import Avg, Count
+
 from rest_framework import serializers
 
-from .models import Produto, Categoria, Compra, ItemCompra
+from .models import (
+    Produto,
+    Categoria,
+    Avaliacao,
+    Compra,
+    ItemCompra,
+)
 
 
 # =========================================================
@@ -31,7 +39,6 @@ class CategoriasProdutoField(serializers.Field):
     """
 
     def to_representation(self, value):
-
         return CategoriaSerializer(
             value.all(),
             many=True
@@ -95,6 +102,8 @@ class ProdutoSerializer(serializers.ModelSerializer):
 
     preco_com_desconto = serializers.SerializerMethodField()
 
+    quantidade_avaliacoes = serializers.SerializerMethodField()
+
     class Meta:
         model = Produto
 
@@ -110,6 +119,12 @@ class ProdutoSerializer(serializers.ModelSerializer):
             "ingredientes_base",
             "ingredientes_creme",
             "avaliacao",
+            "quantidade_avaliacoes",
+        ]
+
+        read_only_fields = [
+            "avaliacao",
+            "quantidade_avaliacoes",
         ]
 
     def get_preco_com_desconto(self, obj):
@@ -125,6 +140,33 @@ class ProdutoSerializer(serializers.ModelSerializer):
             Decimal("0.01"),
             rounding=ROUND_HALF_UP
         )
+
+    def get_quantidade_avaliacoes(self, obj):
+
+        if hasattr(obj, "quantidade_avaliacoes"):
+            return obj.quantidade_avaliacoes
+
+        return obj.avaliacoes.count()
+
+    def to_representation(self, instance):
+        """
+        Exibe a média real das avaliações, sem depender
+        de valores antigos ou preenchidos manualmente.
+        """
+
+        dados = super().to_representation(instance)
+
+        estatisticas = instance.avaliacoes.aggregate(
+            media=Avg("nota"),
+            quantidade=Count("id")
+        )
+
+        media = estatisticas["media"] or 0
+
+        dados["avaliacao"] = round(float(media), 1)
+        dados["quantidade_avaliacoes"] = estatisticas["quantidade"]
+
+        return dados
 
     def validate_desconto(self, value):
 
@@ -142,6 +184,8 @@ class ProdutoSerializer(serializers.ModelSerializer):
             []
         )
 
+        validated_data.pop("avaliacao", None)
+
         produto = Produto.objects.create(
             **validated_data
         )
@@ -157,6 +201,8 @@ class ProdutoSerializer(serializers.ModelSerializer):
             None
         )
 
+        validated_data.pop("avaliacao", None)
+
         for campo, valor in validated_data.items():
             setattr(instance, campo, valor)
 
@@ -166,6 +212,90 @@ class ProdutoSerializer(serializers.ModelSerializer):
             instance.categorias.set(categorias)
 
         return instance
+
+
+# =========================================================
+# AVALIAÇÕES
+# =========================================================
+
+class AvaliacaoSerializer(serializers.ModelSerializer):
+
+    produto = serializers.PrimaryKeyRelatedField(
+        queryset=Produto.objects.all()
+    )
+
+    nome_produto = serializers.CharField(
+        source="produto.nome",
+        read_only=True
+    )
+
+    nome_usuario = serializers.CharField(
+        source="usuario.username",
+        read_only=True
+    )
+
+    class Meta:
+        model = Avaliacao
+
+        fields = [
+            "id",
+            "produto",
+            "nome_produto",
+            "nome_usuario",
+            "nota",
+            "comentario",
+            "criado_em",
+        ]
+
+        read_only_fields = [
+            "id",
+            "nome_usuario",
+            "criado_em",
+        ]
+
+    def validate_nota(self, value):
+
+        if value < 1 or value > 5:
+            raise serializers.ValidationError(
+                "A nota deve estar entre 1 e 5."
+            )
+
+        return value
+
+    def validate_produto(self, value):
+
+        usuario = (
+            self.context.get("request").user
+            if self.context.get("request")
+            else None
+        )
+
+        if usuario and Avaliacao.objects.filter(
+            usuario=usuario,
+            produto=value
+        ).exclude(
+            pk=self.instance.pk if self.instance else None
+        ).exists():
+
+            raise serializers.ValidationError(
+                "Você já avaliou este produto."
+            )
+
+        return value
+
+    def create(self, validated_data):
+
+        request = self.context.get("request")
+
+        if not request or not request.user.is_authenticated:
+            raise serializers.ValidationError(
+                "É necessário estar autenticado para avaliar."
+            )
+
+        return Avaliacao.objects.create(
+            usuario=request.user,
+            **validated_data
+        )
 
 
 # =========================================================
@@ -191,8 +321,14 @@ class ItemCompraSerializer(serializers.ModelSerializer):
 
     def get_subtotal(self, obj):
 
-        return (
-            obj.quantidade * obj.preco_unitario
+        subtotal = (
+            Decimal(str(obj.quantidade))
+            * Decimal(str(obj.preco_unitario))
+        )
+
+        return subtotal.quantize(
+            Decimal("0.01"),
+            rounding=ROUND_HALF_UP
         )
 
 
@@ -223,12 +359,26 @@ class CompraSerializer(serializers.ModelSerializer):
             "total",
         ]
 
+        read_only_fields = [
+            "idCompra",
+            "status",
+            "criado_em",
+            "itens",
+            "total",
+        ]
+
     def get_total(self, obj):
 
-        return sum(
+        total = sum(
             (
-                item.quantidade * item.preco_unitario
+                Decimal(str(item.quantidade))
+                * Decimal(str(item.preco_unitario))
                 for item in obj.itens.all()
             ),
             start=Decimal("0.00")
+        )
+
+        return total.quantize(
+            Decimal("0.01"),
+            rounding=ROUND_HALF_UP
         )

@@ -1,10 +1,13 @@
 
+import random
+import secrets
+
 from datetime import date, datetime, time
 from decimal import Decimal, ROUND_HALF_UP
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.db import transaction
+from django.db import transaction, IntegrityError
 from django.db.models import (
     Count,
     Sum,
@@ -22,8 +25,74 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 
-from .models import Produto, Categoria, Compra, ItemCompra
-from .serializers import ProdutoSerializer, CompraSerializer
+from .models import (
+    Produto,
+    Categoria,
+    Avaliacao,
+    Compra,
+    ItemCompra,
+    CarteiraFidelidade,
+    CupomFidelidade,
+)
+
+from .serializers import (
+    ProdutoSerializer,
+    AvaliacaoSerializer,
+    CompraSerializer,
+)
+
+
+# =========================================================
+# CONFIGURAÇÕES DA FIDELIDADE
+# =========================================================
+
+TOTAL_SELOS_FIDELIDADE = 10
+VALOR_MINIMO_FIDELIDADE = Decimal("20.00")
+
+PREMIOS_FIDELIDADE = [
+    {
+        "tipo": "produto",
+        "titulo": "Torta grátis",
+        "descricao": "Ganhe uma torta por nossa conta.",
+        "icone": "fa-solid fa-cake-candles",
+    },
+    {
+        "tipo": "desconto",
+        "titulo": "10% de desconto",
+        "descricao": "Ganhe 10% de desconto em sua compra.",
+        "icone": "fa-solid fa-tag",
+    },
+    {
+        "tipo": "desconto",
+        "titulo": "25% de desconto",
+        "descricao": "Ganhe 25% de desconto em sua compra.",
+        "icone": "fa-solid fa-tags",
+    },
+    {
+        "tipo": "desconto",
+        "titulo": "50% de desconto",
+        "descricao": "Ganhe 50% de desconto em sua compra.",
+        "icone": "fa-solid fa-gift",
+    },
+    {
+        "tipo": "produto",
+        "titulo": "Pão grátis",
+        "descricao": "Ganhe um pão por nossa conta.",
+        "icone": "fa-solid fa-bread-slice",
+    },
+    {
+        "tipo": "produto",
+        "titulo": "Café grátis",
+        "descricao": "Ganhe um café por nossa conta.",
+        "icone": "fa-solid fa-mug-hot",
+    },
+    {
+        "tipo": "produto",
+        "titulo": "Doce grátis",
+        "descricao": "Ganhe um doce por nossa conta.",
+        "icone": "fa-solid fa-cookie-bite",
+    },
+]
 
 
 # =========================================================
@@ -70,7 +139,9 @@ def calcular_preco_com_desconto(produto):
     desconto = Decimal(str(produto.desconto or "0.00"))
 
     if desconto < 0 or desconto > 100:
-        raise ValueError("O desconto deve estar entre 0% e 100%.")
+        raise ValueError(
+            "O desconto deve estar entre 0% e 100%."
+        )
 
     preco_final = preco * (
         Decimal("1.00") - desconto / Decimal("100.00")
@@ -80,6 +151,168 @@ def calcular_preco_com_desconto(produto):
         Decimal("0.01"),
         rounding=ROUND_HALF_UP
     )
+
+
+# =========================================================
+# VALIDAÇÃO DE COMPRA PARA AVALIAÇÃO
+# =========================================================
+
+def usuario_comprou_produto(usuario, produto):
+    """
+    Só permite criar avaliações para produtos que aparecem
+    em compras do próprio usuário com pagamento confirmado
+    e que não estejam canceladas.
+    """
+
+    return ItemCompra.objects.filter(
+        compra__usuario=usuario,
+        compra__pagamento_confirmado=True,
+        produto=produto,
+    ).exclude(
+        compra__status="cancelado"
+    ).exists()
+
+
+# =========================================================
+# FUNÇÕES AUXILIARES DA FIDELIDADE
+# =========================================================
+
+def calcular_total_compra(compra):
+    total = Decimal("0.00")
+
+    for item in compra.itens.all():
+        total += (
+            Decimal(str(item.preco_unitario))
+            * Decimal(str(item.quantidade))
+        )
+
+    return total.quantize(
+        Decimal("0.01"),
+        rounding=ROUND_HALF_UP
+    )
+
+
+def criar_cupom_fidelidade(usuario):
+    premio = random.choice(PREMIOS_FIDELIDADE)
+
+    while True:
+        codigo = f"MARTINS-{secrets.token_hex(3).upper()}"
+
+        if not CupomFidelidade.objects.filter(
+            codigo=codigo
+        ).exists():
+            break
+
+    return CupomFidelidade.objects.create(
+        usuario=usuario,
+        codigo=codigo,
+        titulo=premio["titulo"],
+        descricao=premio["descricao"],
+        tipo=premio["tipo"],
+        icone=premio["icone"],
+        status="disponivel",
+    )
+
+
+def creditar_selo_da_compra(compra):
+    """
+    Credita no máximo um selo por compra.
+
+    Deve ser chamada dentro de uma transação e depois
+    da confirmação do pagamento.
+    """
+
+    if compra.selo_creditado:
+        return {
+            "creditado": False,
+            "mensagem": "Esta compra já foi processada pela fidelidade.",
+            "cupom": None,
+        }
+
+    total = calcular_total_compra(compra)
+
+    if total < VALOR_MINIMO_FIDELIDADE:
+        compra.selo_creditado = True
+        compra.save(
+            update_fields=["selo_creditado"]
+        )
+
+        return {
+            "creditado": False,
+            "mensagem": "O valor mínimo para ganhar um selo é R$ 20,00.",
+            "cupom": None,
+        }
+
+    Usuario = get_user_model()
+
+    usuario = Usuario.objects.select_for_update().get(
+        pk=compra.usuario_id
+    )
+
+    carteira, _ = CarteiraFidelidade.objects.get_or_create(
+        usuario=usuario
+    )
+
+    carteira = (
+        CarteiraFidelidade.objects
+        .select_for_update()
+        .get(pk=carteira.pk)
+    )
+
+    carteira.selos += 1
+
+    cupom = None
+
+    if carteira.selos >= TOTAL_SELOS_FIDELIDADE:
+        cupom = criar_cupom_fidelidade(usuario)
+        carteira.selos = 0
+
+    carteira.save(
+        update_fields=[
+            "selos",
+            "atualizado_em"
+        ]
+    )
+
+    compra.selo_creditado = True
+
+    compra.save(
+        update_fields=["selo_creditado"]
+    )
+
+    return {
+        "creditado": True,
+        "mensagem": (
+            "Parabéns! Você ganhou um selo."
+            if cupom is None
+            else "Parabéns! Você completou seu cartão e ganhou um cupom."
+        ),
+        "cupom": cupom,
+    }
+
+
+def serializar_cupom_fidelidade(cupom):
+    return {
+        "id": cupom.pk,
+        "codigo": cupom.codigo,
+        "titulo": cupom.titulo,
+        "descricao": cupom.descricao,
+        "tipo": cupom.tipo,
+        "icone": cupom.icone,
+        "status": cupom.status,
+        "criado_em": (
+            cupom.criado_em.isoformat()
+            if cupom.criado_em else None
+        ),
+        "utilizado_em": (
+            cupom.utilizado_em.isoformat()
+            if cupom.utilizado_em else None
+        ),
+        "compra_id": (
+            cupom.compra_id
+            if cupom.compra_id else None
+        ),
+    }
 
 
 # =========================================================
@@ -157,10 +390,6 @@ class ProdutoDetailView(APIView):
             idProduto=id
         )
 
-    # -----------------------------------------------------
-    # CONSULTAR PRODUTO
-    # -----------------------------------------------------
-
     def get(self, request, id):
 
         produto = self.get_produto(id)
@@ -172,10 +401,6 @@ class ProdutoDetailView(APIView):
             status=status.HTTP_200_OK
         )
 
-    # -----------------------------------------------------
-    # ATUALIZAR PRODUTO COMPLETAMENTE
-    # -----------------------------------------------------
-
     def put(self, request, id):
 
         return self.atualizar_produto(
@@ -184,10 +409,6 @@ class ProdutoDetailView(APIView):
             parcial=False
         )
 
-    # -----------------------------------------------------
-    # ATUALIZAR PRODUTO PARCIALMENTE
-    # -----------------------------------------------------
-
     def patch(self, request, id):
 
         return self.atualizar_produto(
@@ -195,10 +416,6 @@ class ProdutoDetailView(APIView):
             id,
             parcial=True
         )
-
-    # -----------------------------------------------------
-    # MÉTODO COMPARTILHADO DE ATUALIZAÇÃO
-    # -----------------------------------------------------
 
     def atualizar_produto(self, request, id, parcial=False):
 
@@ -237,10 +454,6 @@ class ProdutoDetailView(APIView):
             },
             status=status.HTTP_200_OK
         )
-
-    # -----------------------------------------------------
-    # EXCLUIR PRODUTO
-    # -----------------------------------------------------
 
     def delete(self, request, id):
 
@@ -352,6 +565,27 @@ class CompraCreateView(APIView):
 
     permission_classes = [IsAuthenticated]
 
+    def get(self, request):
+
+        compras = (
+            Compra.objects
+            .filter(usuario=request.user)
+            .prefetch_related(
+                "itens__produto__categorias"
+            )
+            .order_by("-criado_em")
+        )
+
+        serializer = CompraSerializer(
+            compras,
+            many=True
+        )
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_200_OK
+        )
+
     @transaction.atomic
     def post(self, request):
 
@@ -368,10 +602,6 @@ class CompraCreateView(APIView):
         ).strip().lower()
 
         itens = request.data.get("itens", [])
-
-        # -------------------------------------------------
-        # VALIDAR DADOS PRINCIPAIS
-        # -------------------------------------------------
 
         if not nome:
             return Response(
@@ -400,10 +630,6 @@ class CompraCreateView(APIView):
             )
 
         itens_validados = []
-
-        # -------------------------------------------------
-        # VALIDAR CADA PRODUTO
-        # -------------------------------------------------
 
         for item in itens:
 
@@ -471,20 +697,12 @@ class CompraCreateView(APIView):
                 (produto, quantidade)
             )
 
-        # -------------------------------------------------
-        # CRIAR COMPRA
-        # -------------------------------------------------
-
         compra = Compra.objects.create(
             usuario=request.user,
             nome=nome,
             telefone=telefone,
             forma_pagamento=forma_pagamento
         )
-
-        # -------------------------------------------------
-        # CRIAR ITENS COM DESCONTO APLICADO
-        # -------------------------------------------------
 
         itens_compra = []
 
@@ -507,10 +725,6 @@ class CompraCreateView(APIView):
             itens_compra
         )
 
-        # -------------------------------------------------
-        # RECUPERAR COMPRA COMPLETA
-        # -------------------------------------------------
-
         compra = (
             Compra.objects
             .prefetch_related(
@@ -526,6 +740,299 @@ class CompraCreateView(APIView):
         return Response(
             serializer.data,
             status=status.HTTP_201_CREATED
+        )
+
+
+# =========================================================
+# AVALIAÇÕES
+# =========================================================
+
+class AvaliacaoListCreateView(APIView):
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        """
+        Sem ?produto: retorna as avaliações do usuário autenticado.
+        Com ?produto=id: retorna as avaliações públicas do produto.
+        """
+
+        avaliacoes = (
+            Avaliacao.objects
+            .select_related("usuario", "produto")
+            .order_by("-criado_em")
+        )
+
+        produto_id = request.query_params.get("produto")
+
+        if produto_id:
+            try:
+                produto_id = int(produto_id)
+
+                if produto_id < 1:
+                    raise ValueError
+
+            except (TypeError, ValueError):
+                return Response(
+                    {"erro": "ID de produto inválido."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            avaliacoes = avaliacoes.filter(
+                produto__idProduto=produto_id
+            )
+
+        else:
+            avaliacoes = avaliacoes.filter(
+                usuario=request.user
+            )
+
+        serializer = AvaliacaoSerializer(
+            avaliacoes,
+            many=True,
+            context={"request": request}
+        )
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_200_OK
+        )
+
+    def post(self, request):
+
+        serializer = AvaliacaoSerializer(
+            data=request.data,
+            context={"request": request}
+        )
+
+        if not serializer.is_valid():
+            return Response(
+                {
+                    "erro": "Não foi possível registrar a avaliação.",
+                    "detalhes": serializer.errors
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        produto = serializer.validated_data["produto"]
+
+        if not usuario_comprou_produto(
+            request.user,
+            produto
+        ):
+            return Response(
+                {
+                    "erro": (
+                        "Você só pode avaliar produtos de compras "
+                        "com pagamento confirmado e não canceladas."
+                    )
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        try:
+            with transaction.atomic():
+                avaliacao = serializer.save()
+
+        except IntegrityError:
+            return Response(
+                {
+                    "erro": "Você já avaliou este produto."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        return Response(
+            {
+                "mensagem": "Avaliação registrada com sucesso!",
+                "avaliacao": AvaliacaoSerializer(
+                    avaliacao,
+                    context={"request": request}
+                ).data
+            },
+            status=status.HTTP_201_CREATED
+        )
+
+
+# =========================================================
+# EDITAR AVALIAÇÃO
+# =========================================================
+
+class AvaliacaoDetailView(APIView):
+
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, id):
+
+        avaliacao = get_object_or_404(
+            Avaliacao.objects.select_related(
+                "produto",
+                "usuario"
+            ),
+            pk=id,
+            usuario=request.user
+        )
+
+        # Impede trocar o produto de uma avaliação existente.
+        if "produto" in request.data:
+            return Response(
+                {
+                    "erro": (
+                        "Não é permitido trocar o produto de uma "
+                        "avaliação existente."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        serializer = AvaliacaoSerializer(
+            avaliacao,
+            data=request.data,
+            partial=True,
+            context={"request": request}
+        )
+
+        if not serializer.is_valid():
+            return Response(
+                {
+                    "erro": "Não foi possível atualizar a avaliação.",
+                    "detalhes": serializer.errors
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        with transaction.atomic():
+            avaliacao = serializer.save()
+
+        return Response(
+            {
+                "mensagem": "Avaliação atualizada com sucesso!",
+                "avaliacao": AvaliacaoSerializer(
+                    avaliacao,
+                    context={"request": request}
+                ).data
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+# =========================================================
+# CARTEIRA DE FIDELIDADE
+# =========================================================
+
+class CarteiraFidelidadeView(APIView):
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+
+        carteira, _ = CarteiraFidelidade.objects.get_or_create(
+            usuario=request.user
+        )
+
+        selos = carteira.selos
+
+        return Response(
+            {
+                "carteira": {
+                    "usuario": request.user.pk,
+                    "selos": selos,
+                    "total_selos": TOTAL_SELOS_FIDELIDADE,
+                    "progresso": selos,
+                    "faltam": max(
+                        TOTAL_SELOS_FIDELIDADE - selos,
+                        0
+                    ),
+                    "cartao_completo": (
+                        selos >= TOTAL_SELOS_FIDELIDADE
+                    ),
+                    "criado_em": carteira.criado_em.isoformat(),
+                    "atualizado_em": carteira.atualizado_em.isoformat(),
+                }
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+# =========================================================
+# LISTAGEM DE CUPONS
+# =========================================================
+
+class CupomFidelidadeListView(APIView):
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+
+        cupons = CupomFidelidade.objects.filter(
+            usuario=request.user
+        ).order_by("-criado_em")
+
+        todos = [
+            serializar_cupom_fidelidade(cupom)
+            for cupom in cupons
+        ]
+
+        disponiveis = [
+            cupom for cupom in todos
+            if cupom["status"] == "disponivel"
+        ]
+
+        utilizados = [
+            cupom for cupom in todos
+            if cupom["status"] == "utilizado"
+        ]
+
+        return Response(
+            {
+                "cupons": todos,
+                "disponiveis": disponiveis,
+                "utilizados": utilizados,
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+# =========================================================
+# VALIDAÇÃO DE CUPOM
+# =========================================================
+
+class CupomFidelidadeUtilizarView(APIView):
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, codigo):
+
+        cupom = CupomFidelidade.objects.filter(
+            usuario=request.user,
+            codigo__iexact=codigo.strip()
+        ).first()
+
+        if cupom is None:
+            return Response(
+                {
+                    "valido": False,
+                    "erro": "Cupom não encontrado."
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        if cupom.status != "disponivel":
+            return Response(
+                {
+                    "valido": False,
+                    "erro": "Este cupom já foi utilizado."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        return Response(
+            {
+                "valido": True,
+                "mensagem": "Cupom válido e disponível.",
+                "cupom": serializar_cupom_fidelidade(cupom),
+            },
+            status=status.HTTP_200_OK
         )
 
 
@@ -549,10 +1056,6 @@ class AdminDashboardView(APIView):
         hoje = timezone.localdate()
 
         meses = []
-
-        # -------------------------------------------------
-        # ÚLTIMOS SEIS MESES, INCLUINDO O ATUAL
-        # -------------------------------------------------
 
         for deslocamento in reversed(range(6)):
 
@@ -583,10 +1086,6 @@ class AdminDashboardView(APIView):
             criado_em__gte=inicio_periodo
         )
 
-        # -------------------------------------------------
-        # QUANTIDADE DE ENCOMENDAS POR MÊS
-        # -------------------------------------------------
-
         compras_por_mes = (
             compras_periodo
             .annotate(
@@ -598,10 +1097,6 @@ class AdminDashboardView(APIView):
             )
             .order_by("mes")
         )
-
-        # -------------------------------------------------
-        # FATURAMENTO POR MÊS
-        # -------------------------------------------------
 
         valor_item = ExpressionWrapper(
             F("quantidade") * F("preco_unitario"),
@@ -669,10 +1164,6 @@ class AdminDashboardView(APIView):
                 )
             })
 
-        # -------------------------------------------------
-        # CINCO ÚLTIMAS ENCOMENDAS
-        # -------------------------------------------------
-
         total_compra = ExpressionWrapper(
             F("itens__quantidade") * F("itens__preco_unitario"),
             output_field=DecimalField(
@@ -704,10 +1195,6 @@ class AdminDashboardView(APIView):
                 )
             })
 
-        # -------------------------------------------------
-        # RESPOSTA DO DASHBOARD
-        # -------------------------------------------------
-
         return Response(
             {
                 "resumo": {
@@ -734,10 +1221,6 @@ class AdminComprasView(APIView):
     def verificar_admin(self, request):
         return usuario_e_admin(request)
 
-    # -----------------------------------------------------
-    # SERIALIZAR COMPRA PARA O PAINEL
-    # -----------------------------------------------------
-
     def serializar_compra(self, compra):
 
         itens = []
@@ -757,11 +1240,8 @@ class AdminComprasView(APIView):
                 "idProduto": item.produto.idProduto,
                 "nome": item.produto.nome,
                 "quantidade": item.quantidade,
-
-                # Preço efetivamente cobrado na compra.
                 "preco": float(item.preco_unitario),
                 "preco_unitario": float(item.preco_unitario),
-
                 "subtotal": float(subtotal)
             })
 
@@ -775,12 +1255,14 @@ class AdminComprasView(APIView):
             "status": compra.status,
             "criado_em": compra.criado_em.isoformat(),
             "total": float(total),
-            "itens": itens
+            "itens": itens,
+            "pagamento_confirmado": compra.pagamento_confirmado,
+            "pagamento_confirmado_em": (
+                compra.pagamento_confirmado_em.isoformat()
+                if compra.pagamento_confirmado_em else None
+            ),
+            "selo_creditado": compra.selo_creditado,
         }
-
-    # -----------------------------------------------------
-    # LISTAR TODAS AS ENCOMENDAS
-    # -----------------------------------------------------
 
     def get(self, request):
 
@@ -806,10 +1288,7 @@ class AdminComprasView(APIView):
             status=status.HTTP_200_OK
         )
 
-    # -----------------------------------------------------
-    # ATUALIZAR STATUS DE UMA ENCOMENDA
-    # -----------------------------------------------------
-
+    @transaction.atomic
     def patch(self, request, id):
 
         if not self.verificar_admin(request):
@@ -819,38 +1298,131 @@ class AdminComprasView(APIView):
 
         compra = get_object_or_404(
             Compra.objects
+            .select_for_update()
             .select_related("usuario")
             .prefetch_related("itens__produto"),
             idCompra=id
         )
 
-        novo_status = request.data.get("status")
+        dados = request.data
 
-        status_validos = dict(
-            Compra.STATUS_CHOICES
-        )
-
-        if novo_status not in status_validos:
+        if not any(
+            campo in dados
+            for campo in ["status", "pagamento_confirmado"]
+        ):
             return Response(
                 {
-                    "erro": "Status inválido.",
-                    "status_disponiveis": list(
-                        status_validos.keys()
-                    )
+                    "erro": "Informe o status ou a confirmação do pagamento."
                 },
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        compra.status = novo_status
+        alteracoes = []
 
-        compra.save(
-            update_fields=["status"]
-        )
+        if "status" in dados:
+
+            novo_status = dados.get("status")
+
+            status_validos = dict(
+                Compra.STATUS_CHOICES
+            )
+
+            if novo_status not in status_validos:
+                return Response(
+                    {
+                        "erro": "Status inválido.",
+                        "status_disponiveis": list(
+                            status_validos.keys()
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            compra.status = novo_status
+            alteracoes.append("status")
+
+        resultado_fidelidade = None
+
+        if "pagamento_confirmado" in dados:
+
+            pagamento_confirmado = dados.get(
+                "pagamento_confirmado"
+            )
+
+            if not isinstance(pagamento_confirmado, bool):
+                return Response(
+                    {
+                        "erro": (
+                            "O campo pagamento_confirmado "
+                            "deve ser verdadeiro ou falso."
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            if pagamento_confirmado:
+
+                if compra.status == "cancelado":
+                    return Response(
+                        {
+                            "erro": (
+                                "Não é possível confirmar o pagamento "
+                                "de uma encomenda cancelada."
+                            )
+                        },
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                if not compra.pagamento_confirmado:
+
+                    compra.pagamento_confirmado = True
+                    compra.pagamento_confirmado_em = timezone.now()
+
+                    alteracoes.extend([
+                        "pagamento_confirmado",
+                        "pagamento_confirmado_em"
+                    ])
+
+                resultado_fidelidade = creditar_selo_da_compra(
+                    compra
+                )
+
+            else:
+                compra.pagamento_confirmado = False
+                compra.pagamento_confirmado_em = None
+
+                alteracoes.extend([
+                    "pagamento_confirmado",
+                    "pagamento_confirmado_em"
+                ])
+
+        if alteracoes:
+            compra.save(
+                update_fields=list(set(alteracoes))
+            )
+
+        compra.refresh_from_db()
+
+        resposta = {
+            "mensagem": "Encomenda atualizada com sucesso.",
+            "compra": self.serializar_compra(compra)
+        }
+
+        if resultado_fidelidade is not None:
+
+            resposta["fidelidade"] = {
+                "creditado": resultado_fidelidade["creditado"],
+                "mensagem": resultado_fidelidade["mensagem"],
+                "cupom": (
+                    serializar_cupom_fidelidade(
+                        resultado_fidelidade["cupom"]
+                    )
+                    if resultado_fidelidade["cupom"]
+                    else None
+                )
+            }
 
         return Response(
-            {
-                "mensagem": "Status da encomenda atualizado com sucesso.",
-                "compra": self.serializar_compra(compra)
-            },
+            resposta,
             status=status.HTTP_200_OK
         )

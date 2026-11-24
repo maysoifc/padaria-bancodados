@@ -1,4 +1,5 @@
 
+from django.conf import settings
 from django.db import models
 from django.core.validators import MinValueValidator, MaxValueValidator
 
@@ -75,6 +76,8 @@ class Produto(models.Model):
         blank=True
     )
 
+    # Média das avaliações do produto.
+    # Será atualizada pelas operações de avaliação.
     avaliacao = models.FloatField(
         default=0.0,
         validators=[
@@ -110,7 +113,7 @@ class Produto(models.Model):
 class Avaliacao(models.Model):
 
     usuario = models.ForeignKey(
-        "perfis.Usuario",
+        settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name="avaliacoes"
     )
@@ -150,7 +153,11 @@ class Avaliacao(models.Model):
         verbose_name_plural = "Avaliações"
 
     def __str__(self):
-        return f"{self.usuario} - {self.produto} - {self.nota}"
+        return (
+            f"{self.usuario} - "
+            f"{self.produto} - "
+            f"{self.nota}"
+        )
 
 
 # =========================================================
@@ -170,7 +177,7 @@ class Compra(models.Model):
     idCompra = models.AutoField(primary_key=True)
 
     usuario = models.ForeignKey(
-        "perfis.Usuario",
+        settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name="compras"
     )
@@ -193,6 +200,26 @@ class Compra(models.Model):
         default="pendente"
     )
 
+    # CONFIRMAÇÃO DO PAGAMENTO
+
+    pagamento_confirmado = models.BooleanField(
+        default=False,
+        verbose_name="Pagamento confirmado"
+    )
+
+    pagamento_confirmado_em = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Data da confirmação do pagamento"
+    )
+
+    # CONTROLE DE CRÉDITO DE SELO
+
+    selo_creditado = models.BooleanField(
+        default=False,
+        verbose_name="Selo creditado"
+    )
+
     criado_em = models.DateTimeField(
         auto_now_add=True
     )
@@ -204,6 +231,145 @@ class Compra(models.Model):
         ordering = ["-criado_em"]
         verbose_name = "Compra"
         verbose_name_plural = "Compras"
+
+
+# =========================================================
+# CARTEIRA DE FIDELIDADE
+# =========================================================
+
+class CarteiraFidelidade(models.Model):
+
+    TOTAL_SELOS = 10
+
+    usuario = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="carteira_fidelidade"
+    )
+
+    selos = models.PositiveSmallIntegerField(
+        default=0,
+        validators=[
+            MinValueValidator(0),
+            MaxValueValidator(TOTAL_SELOS)
+        ],
+        verbose_name="Quantidade de selos"
+    )
+
+    criado_em = models.DateTimeField(
+        auto_now_add=True
+    )
+
+    atualizado_em = models.DateTimeField(
+        auto_now=True
+    )
+
+    @property
+    def progresso(self):
+        return min(
+            (self.selos / self.TOTAL_SELOS) * 100,
+            100
+        )
+
+    @property
+    def faltam(self):
+        return max(
+            self.TOTAL_SELOS - self.selos,
+            0
+        )
+
+    @property
+    def cartao_completo(self):
+        return self.selos >= self.TOTAL_SELOS
+
+    def __str__(self):
+        return (
+            f"Carteira de {self.usuario} - "
+            f"{self.selos}/{self.TOTAL_SELOS}"
+        )
+
+    class Meta:
+        verbose_name = "Carteira de fidelidade"
+        verbose_name_plural = "Carteiras de fidelidade"
+
+
+# =========================================================
+# CUPONS DE FIDELIDADE
+# =========================================================
+
+class CupomFidelidade(models.Model):
+
+    STATUS_CHOICES = [
+        ("disponivel", "Disponível"),
+        ("utilizado", "Utilizado"),
+    ]
+
+    TIPO_CHOICES = [
+        ("produto", "Produto grátis"),
+        ("desconto", "Desconto"),
+    ]
+
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="cupons_fidelidade"
+    )
+
+    codigo = models.CharField(
+        max_length=30,
+        unique=True
+    )
+
+    titulo = models.CharField(
+        max_length=150
+    )
+
+    descricao = models.TextField()
+
+    tipo = models.CharField(
+        max_length=20,
+        choices=TIPO_CHOICES
+    )
+
+    icone = models.CharField(
+        max_length=100,
+        blank=True
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default="disponivel"
+    )
+
+    criado_em = models.DateTimeField(
+        auto_now_add=True
+    )
+
+    utilizado_em = models.DateTimeField(
+        null=True,
+        blank=True
+    )
+
+    compra = models.ForeignKey(
+        Compra,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="cupons_utilizados"
+    )
+
+    def __str__(self):
+        return (
+            f"{self.codigo} - "
+            f"{self.titulo} - "
+            f"{self.usuario}"
+        )
+
+    class Meta:
+        ordering = ["-criado_em"]
+        verbose_name = "Cupom de fidelidade"
+        verbose_name_plural = "Cupons de fidelidade"
 
 
 # =========================================================
@@ -220,7 +386,7 @@ class ItemCompra(models.Model):
         related_name="itens"
     )
 
-    # PROTECT preserva o histórico das compras.
+    # Preserva o histórico das compras.
     # Produtos utilizados em compras não poderão ser excluídos.
     produto = models.ForeignKey(
         Produto,
