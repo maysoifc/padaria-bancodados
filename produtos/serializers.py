@@ -39,6 +39,7 @@ class CategoriasProdutoField(serializers.Field):
     """
 
     def to_representation(self, value):
+
         return CategoriaSerializer(
             value.all(),
             many=True
@@ -264,22 +265,31 @@ class AvaliacaoSerializer(serializers.ModelSerializer):
 
     def validate_produto(self, value):
 
+        request = self.context.get("request")
+
         usuario = (
-            self.context.get("request").user
-            if self.context.get("request")
+            request.user
+            if request and request.user.is_authenticated
             else None
         )
 
-        if usuario and Avaliacao.objects.filter(
-            usuario=usuario,
-            produto=value
-        ).exclude(
-            pk=self.instance.pk if self.instance else None
-        ).exists():
+        if usuario:
 
-            raise serializers.ValidationError(
-                "Você já avaliou este produto."
+            avaliacoes = Avaliacao.objects.filter(
+                usuario=usuario,
+                produto=value
             )
+
+            # Na edição, ignora a própria avaliação.
+            if self.instance:
+                avaliacoes = avaliacoes.exclude(
+                    pk=self.instance.pk
+                )
+
+            if avaliacoes.exists():
+                raise serializers.ValidationError(
+                    "Você já avaliou este produto."
+                )
 
         return value
 
@@ -304,7 +314,9 @@ class AvaliacaoSerializer(serializers.ModelSerializer):
 
 class ItemCompraSerializer(serializers.ModelSerializer):
 
-    produto = ProdutoSerializer(read_only=True)
+    produto = ProdutoSerializer(
+        read_only=True
+    )
 
     subtotal = serializers.SerializerMethodField()
 

@@ -130,10 +130,6 @@ def resposta_nao_autenticado():
 # =========================================================
 
 def calcular_preco_com_desconto(produto):
-    """
-    Calcula o preço final usando o preço e o percentual
-    de desconto cadastrados no banco de dados.
-    """
 
     preco = Decimal(str(produto.preco or "0.00"))
     desconto = Decimal(str(produto.desconto or "0.00"))
@@ -158,11 +154,6 @@ def calcular_preco_com_desconto(produto):
 # =========================================================
 
 def usuario_comprou_produto(usuario, produto):
-    """
-    Só permite criar avaliações para produtos que aparecem
-    em compras do próprio usuário com pagamento confirmado
-    e que não estejam canceladas.
-    """
 
     return ItemCompra.objects.filter(
         compra__usuario=usuario,
@@ -178,6 +169,7 @@ def usuario_comprou_produto(usuario, produto):
 # =========================================================
 
 def calcular_total_compra(compra):
+
     total = Decimal("0.00")
 
     for item in compra.itens.all():
@@ -193,6 +185,7 @@ def calcular_total_compra(compra):
 
 
 def criar_cupom_fidelidade(usuario):
+
     premio = random.choice(PREMIOS_FIDELIDADE)
 
     while True:
@@ -215,12 +208,6 @@ def criar_cupom_fidelidade(usuario):
 
 
 def creditar_selo_da_compra(compra):
-    """
-    Credita no máximo um selo por compra.
-
-    Deve ser chamada dentro de uma transação e depois
-    da confirmação do pagamento.
-    """
 
     if compra.selo_creditado:
         return {
@@ -232,7 +219,9 @@ def creditar_selo_da_compra(compra):
     total = calcular_total_compra(compra)
 
     if total < VALOR_MINIMO_FIDELIDADE:
+
         compra.selo_creditado = True
+
         compra.save(
             update_fields=["selo_creditado"]
         )
@@ -292,6 +281,7 @@ def creditar_selo_da_compra(compra):
 
 
 def serializar_cupom_fidelidade(cupom):
+
     return {
         "id": cupom.pk,
         "codigo": cupom.codigo,
@@ -385,6 +375,7 @@ class ProdutoListView(APIView):
 class ProdutoDetailView(APIView):
 
     def get_produto(self, id):
+
         return get_object_or_404(
             Produto.objects.prefetch_related("categorias"),
             idProduto=id
@@ -649,6 +640,7 @@ class CompraCreateView(APIView):
             )
 
             try:
+
                 if isinstance(produto_id_recebido, bool):
                     raise ValueError
 
@@ -666,6 +658,7 @@ class CompraCreateView(APIView):
                     raise ValueError
 
             except (TypeError, ValueError):
+
                 return Response(
                     {
                         "erro": "Produto ou quantidade inválidos."
@@ -674,6 +667,7 @@ class CompraCreateView(APIView):
                 )
 
             if produto_id < 1 or quantidade < 1:
+
                 return Response(
                     {
                         "erro": "O produto e a quantidade devem ser válidos."
@@ -686,6 +680,7 @@ class CompraCreateView(APIView):
             ).first()
 
             if produto is None:
+
                 return Response(
                     {
                         "erro": f"Produto com ID {produto_id} não encontrado."
@@ -752,10 +747,6 @@ class AvaliacaoListCreateView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        """
-        Sem ?produto: retorna as avaliações do usuário autenticado.
-        Com ?produto=id: retorna as avaliações públicas do produto.
-        """
 
         avaliacoes = (
             Avaliacao.objects
@@ -766,13 +757,16 @@ class AvaliacaoListCreateView(APIView):
         produto_id = request.query_params.get("produto")
 
         if produto_id:
+
             try:
+
                 produto_id = int(produto_id)
 
                 if produto_id < 1:
                     raise ValueError
 
             except (TypeError, ValueError):
+
                 return Response(
                     {"erro": "ID de produto inválido."},
                     status=status.HTTP_400_BAD_REQUEST
@@ -783,6 +777,7 @@ class AvaliacaoListCreateView(APIView):
             )
 
         else:
+
             avaliacoes = avaliacoes.filter(
                 usuario=request.user
             )
@@ -806,6 +801,7 @@ class AvaliacaoListCreateView(APIView):
         )
 
         if not serializer.is_valid():
+
             return Response(
                 {
                     "erro": "Não foi possível registrar a avaliação.",
@@ -820,6 +816,7 @@ class AvaliacaoListCreateView(APIView):
             request.user,
             produto
         ):
+
             return Response(
                 {
                     "erro": (
@@ -831,10 +828,12 @@ class AvaliacaoListCreateView(APIView):
             )
 
         try:
+
             with transaction.atomic():
                 avaliacao = serializer.save()
 
         except IntegrityError:
+
             return Response(
                 {
                     "erro": "Você já avaliou este produto."
@@ -873,8 +872,8 @@ class AvaliacaoDetailView(APIView):
             usuario=request.user
         )
 
-        # Impede trocar o produto de uma avaliação existente.
         if "produto" in request.data:
+
             return Response(
                 {
                     "erro": (
@@ -893,6 +892,7 @@ class AvaliacaoDetailView(APIView):
         )
 
         if not serializer.is_valid():
+
             return Response(
                 {
                     "erro": "Não foi possível atualizar a avaliação.",
@@ -1009,6 +1009,7 @@ class CupomFidelidadeUtilizarView(APIView):
         ).first()
 
         if cupom is None:
+
             return Response(
                 {
                     "valido": False,
@@ -1018,6 +1019,7 @@ class CupomFidelidadeUtilizarView(APIView):
             )
 
         if cupom.status != "disponivel":
+
             return Response(
                 {
                     "valido": False,
@@ -1067,6 +1069,7 @@ class AdminCuponsFidelidadeView(APIView):
     def get(self, request):
 
         if not usuario_e_admin(request):
+
             return resposta_sem_permissao(
                 "Você não tem permissão para acessar os cupons."
             )
@@ -1083,6 +1086,7 @@ class AdminCuponsFidelidadeView(APIView):
         ).strip()
 
         if busca:
+
             cupons = cupons.filter(
                 codigo__icontains=busca
             )
@@ -1112,6 +1116,7 @@ class AdminCuponsFidelidadeView(APIView):
     def patch(self, request, id):
 
         if not usuario_e_admin(request):
+
             return resposta_sem_permissao(
                 "Você não tem permissão para alterar os cupons."
             )
@@ -1129,6 +1134,7 @@ class AdminCuponsFidelidadeView(APIView):
         )
 
         if novo_status != "utilizado":
+
             return Response(
                 {
                     "erro": (
@@ -1141,6 +1147,7 @@ class AdminCuponsFidelidadeView(APIView):
             )
 
         if cupom.status == "utilizado":
+
             return Response(
                 {
                     "mensagem": "Este cupom já está marcado como utilizado.",
@@ -1179,6 +1186,7 @@ class AdminDashboardView(APIView):
     def get(self, request):
 
         if not usuario_e_admin(request):
+
             return resposta_sem_permissao(
                 "Você não tem permissão para acessar o painel."
             )
@@ -1200,9 +1208,7 @@ class AdminDashboardView(APIView):
             ano = indice // 12
             mes = indice % 12 + 1
 
-            meses.append(
-                date(ano, mes, 1)
-            )
+            meses.append(date(ano, mes, 1))
 
         inicio_periodo = datetime.combine(
             meses[0],
@@ -1210,9 +1216,14 @@ class AdminDashboardView(APIView):
         )
 
         if settings.USE_TZ:
+
             inicio_periodo = timezone.make_aware(
                 inicio_periodo
             )
+
+        # =================================================
+        # COMPRAS POR MÊS
+        # =================================================
 
         compras_periodo = Compra.objects.filter(
             criado_em__gte=inicio_periodo
@@ -1230,6 +1241,10 @@ class AdminDashboardView(APIView):
             .order_by("mes")
         )
 
+        # =================================================
+        # FATURAMENTO POR MÊS
+        # =================================================
+
         valor_item = ExpressionWrapper(
             F("quantidade") * F("preco_unitario"),
             output_field=DecimalField(
@@ -1241,7 +1256,8 @@ class AdminDashboardView(APIView):
         valores_por_mes = (
             ItemCompra.objects
             .filter(
-                compra__criado_em__gte=inicio_periodo
+                compra__criado_em__gte=inicio_periodo,
+                compra__pagamento_confirmado=True
             )
             .exclude(
                 compra__status="cancelado"
@@ -1296,6 +1312,10 @@ class AdminDashboardView(APIView):
                 )
             })
 
+        # =================================================
+        # ÚLTIMAS ENCOMENDAS
+        # =================================================
+
         total_compra = ExpressionWrapper(
             F("itens__quantidade") * F("itens__preco_unitario"),
             output_field=DecimalField(
@@ -1327,6 +1347,56 @@ class AdminDashboardView(APIView):
                 )
             })
 
+        # =================================================
+        # PRODUTOS MAIS VENDIDOS
+        # =================================================
+
+        produtos_mais_vendidos = (
+            ItemCompra.objects
+            .filter(
+                compra__pagamento_confirmado=True
+            )
+            .exclude(
+                compra__status="cancelado"
+            )
+            .values(
+                "produto_id",
+                "produto__nome",
+                "produto__imagem",
+                "produto__preco",
+            )
+            .annotate(
+                quantidade_vendida=Sum("quantidade"),
+                total_compras=Count(
+                    "compra_id",
+                    distinct=True
+                )
+            )
+            .order_by(
+                "-quantidade_vendida",
+                "produto__nome"
+            )[:5]
+        )
+
+        mais_vendidos = []
+
+        for item in produtos_mais_vendidos:
+
+            mais_vendidos.append({
+                "produto_id": item["produto_id"],
+                "nome": item["produto__nome"],
+                "imagem": item["produto__imagem"],
+                "preco": str(item["produto__preco"]),
+                "quantidade_vendida": (
+                    item["quantidade_vendida"] or 0
+                ),
+                "total_compras": item["total_compras"],
+            })
+
+        # =================================================
+        # RESPOSTA DO DASHBOARD
+        # =================================================
+
         return Response(
             {
                 "resumo": {
@@ -1336,8 +1406,12 @@ class AdminDashboardView(APIView):
                     "usuarios": Usuario.objects.count(),
                     "cupons": CupomFidelidade.objects.count(),
                 },
+
                 "grafico": grafico,
-                "ultimas_encomendas": ultimas_encomendas
+
+                "ultimas_encomendas": ultimas_encomendas,
+
+                "mais_vendidos": mais_vendidos,
             },
             status=status.HTTP_200_OK
         )
@@ -1352,6 +1426,7 @@ class AdminComprasView(APIView):
     permission_classes = [IsAuthenticated]
 
     def verificar_admin(self, request):
+
         return usuario_e_admin(request)
 
     def serializar_compra(self, compra):
@@ -1400,6 +1475,7 @@ class AdminComprasView(APIView):
     def get(self, request):
 
         if not self.verificar_admin(request):
+
             return resposta_sem_permissao(
                 "Você não tem permissão para acessar as compras."
             )
@@ -1425,6 +1501,7 @@ class AdminComprasView(APIView):
     def patch(self, request, id):
 
         if not self.verificar_admin(request):
+
             return resposta_sem_permissao(
                 "Você não tem permissão para alterar as compras."
             )
@@ -1443,6 +1520,7 @@ class AdminComprasView(APIView):
             campo in dados
             for campo in ["status", "pagamento_confirmado"]
         ):
+
             return Response(
                 {
                     "erro": "Informe o status ou a confirmação do pagamento."
@@ -1461,6 +1539,7 @@ class AdminComprasView(APIView):
             )
 
             if novo_status not in status_validos:
+
                 return Response(
                     {
                         "erro": "Status inválido.",
@@ -1483,6 +1562,7 @@ class AdminComprasView(APIView):
             )
 
             if not isinstance(pagamento_confirmado, bool):
+
                 return Response(
                     {
                         "erro": (
@@ -1496,6 +1576,7 @@ class AdminComprasView(APIView):
             if pagamento_confirmado:
 
                 if compra.status == "cancelado":
+
                     return Response(
                         {
                             "erro": (
@@ -1521,6 +1602,7 @@ class AdminComprasView(APIView):
                 )
 
             else:
+
                 compra.pagamento_confirmado = False
                 compra.pagamento_confirmado_em = None
 
@@ -1530,6 +1612,7 @@ class AdminComprasView(APIView):
                 ])
 
         if alteracoes:
+
             compra.save(
                 update_fields=list(set(alteracoes))
             )
