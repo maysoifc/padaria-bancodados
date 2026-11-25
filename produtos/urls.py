@@ -14,6 +14,7 @@ from .views import (
     CarteiraFidelidadeView,
     CupomFidelidadeListView,
     CupomFidelidadeUtilizarView,
+    AdminCuponsFidelidadeView,
 )
 
 
@@ -103,7 +104,7 @@ urlpatterns = [
     ),
 
     # =====================================================
-    # FIDELIDADE
+    # FIDELIDADE DO CLIENTE
     # =====================================================
 
     # Consultar carteira de selos do usuário autenticado
@@ -125,6 +126,24 @@ urlpatterns = [
         "fidelidade/cupons/<str:codigo>/utilizar/",
         CupomFidelidadeUtilizarView.as_view(),
         name="fidelidade-cupom-utilizar"
+    ),
+
+    # =====================================================
+    # GERENCIAMENTO DE CUPONS - ADMIN
+    # =====================================================
+
+    # Listar e pesquisar todos os cupons
+    path(
+        "fidelidade/admin/cupons/",
+        AdminCuponsFidelidadeView.as_view(),
+        name="admin-cupons-fidelidade"
+    ),
+
+    # Marcar um cupom específico como utilizado
+    path(
+        "fidelidade/admin/cupons/<int:id>/",
+        AdminCuponsFidelidadeView.as_view(),
+        name="admin-cupom-fidelidade-detalhe"
     ),
 
     # =====================================================
