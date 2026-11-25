@@ -955,7 +955,7 @@ class CarteiraFidelidadeView(APIView):
 
 
 # =========================================================
-# LISTAGEM DE CUPONS
+# LISTAGEM DE CUPONS DO CLIENTE
 # =========================================================
 
 class CupomFidelidadeListView(APIView):
@@ -994,7 +994,7 @@ class CupomFidelidadeListView(APIView):
 
 
 # =========================================================
-# VALIDAÇÃO DE CUPOM
+# VALIDAÇÃO DE CUPOM DO CLIENTE
 # =========================================================
 
 class CupomFidelidadeUtilizarView(APIView):
@@ -1031,6 +1031,138 @@ class CupomFidelidadeUtilizarView(APIView):
                 "valido": True,
                 "mensagem": "Cupom válido e disponível.",
                 "cupom": serializar_cupom_fidelidade(cupom),
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+# =========================================================
+# GERENCIAMENTO DE CUPONS - ADMIN
+# =========================================================
+
+class AdminCuponsFidelidadeView(APIView):
+
+    permission_classes = [IsAuthenticated]
+
+    def serializar_cupom_admin(self, cupom):
+
+        usuario = cupom.usuario
+
+        nome_cliente = (
+            usuario.get_full_name()
+            or getattr(usuario, "username", "")
+            or usuario.email
+        )
+
+        dados = serializar_cupom_fidelidade(cupom)
+
+        dados.update({
+            "usuario_id": usuario.pk,
+            "cliente": nome_cliente,
+            "email": usuario.email,
+        })
+
+        return dados
+
+    def get(self, request):
+
+        if not usuario_e_admin(request):
+            return resposta_sem_permissao(
+                "Você não tem permissão para acessar os cupons."
+            )
+
+        cupons = (
+            CupomFidelidade.objects
+            .select_related("usuario")
+            .order_by("-criado_em")
+        )
+
+        busca = request.query_params.get(
+            "busca",
+            ""
+        ).strip()
+
+        if busca:
+            cupons = cupons.filter(
+                codigo__icontains=busca
+            )
+
+        resultado = [
+            self.serializar_cupom_admin(cupom)
+            for cupom in cupons
+        ]
+
+        return Response(
+            {
+                "cupons": resultado,
+                "total": len(resultado),
+                "disponiveis": sum(
+                    1 for cupom in resultado
+                    if cupom["status"] == "disponivel"
+                ),
+                "utilizados": sum(
+                    1 for cupom in resultado
+                    if cupom["status"] == "utilizado"
+                ),
+            },
+            status=status.HTTP_200_OK
+        )
+
+    @transaction.atomic
+    def patch(self, request, id):
+
+        if not usuario_e_admin(request):
+            return resposta_sem_permissao(
+                "Você não tem permissão para alterar os cupons."
+            )
+
+        cupom = get_object_or_404(
+            CupomFidelidade.objects
+            .select_for_update()
+            .select_related("usuario"),
+            pk=id
+        )
+
+        novo_status = request.data.get(
+            "status",
+            "utilizado"
+        )
+
+        if novo_status != "utilizado":
+            return Response(
+                {
+                    "erro": (
+                        "O status informado é inválido. "
+                        "A ação administrativa permite marcar "
+                        "o cupom como utilizado."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if cupom.status == "utilizado":
+            return Response(
+                {
+                    "mensagem": "Este cupom já está marcado como utilizado.",
+                    "cupom": self.serializar_cupom_admin(cupom),
+                },
+                status=status.HTTP_200_OK
+            )
+
+        cupom.status = "utilizado"
+        cupom.utilizado_em = timezone.now()
+
+        cupom.save(
+            update_fields=[
+                "status",
+                "utilizado_em"
+            ]
+        )
+
+        return Response(
+            {
+                "mensagem": "Cupom marcado como utilizado com sucesso!",
+                "cupom": self.serializar_cupom_admin(cupom),
             },
             status=status.HTTP_200_OK
         )
@@ -1201,7 +1333,8 @@ class AdminDashboardView(APIView):
                     "produtos": Produto.objects.count(),
                     "categorias": Categoria.objects.count(),
                     "encomendas": Compra.objects.count(),
-                    "usuarios": Usuario.objects.count()
+                    "usuarios": Usuario.objects.count(),
+                    "cupons": CupomFidelidade.objects.count(),
                 },
                 "grafico": grafico,
                 "ultimas_encomendas": ultimas_encomendas
